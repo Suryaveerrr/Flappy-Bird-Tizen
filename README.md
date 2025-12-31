@@ -2,7 +2,10 @@
 
 A robust, high-performance HTML5 game optimized specifically for **Samsung Tizen TV** (Web Application). This project replicates the classic "Flappy Bird" mechanics with enhanced visuals, parallax scrolling, and TV remote input handling.
 
-![Game Banner](images/splash-screen_hd.jpg)
+<img width="1081" height="538" alt="image" src="https://github.com/user-attachments/assets/1aa1492c-86cd-42ac-82e8-07a519175bd7" />
+<img width="1083" height="541" alt="image" src="https://github.com/user-attachments/assets/4b89e4ab-3dda-4750-bd24-8c132e9bc5d1" />
+![Uploading image.png…]()
+
 
 ## 🚀 Features
 
