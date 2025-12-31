@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <title>FLAPPY BIRD</title>
+    <style>
+        body { margin: 0; padding: 0; background: #1a1a1a; overflow: hidden; }
+        canvas { display: block; margin: 0 auto; background: #000; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        // --- 1. CONFIGURATION ---
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        ctx.imageSmoothingEnabled = false; 
+        
+        const STATE = { TITLE: 0, LEVEL_SELECT: 1, GAME: 2, GAMEOVER: 3 };
+        let currentState = STATE.TITLE;
+        
+        let frames = 0;
+        let score = 0;
+        let coins = 0;
+        let highscore = 0;
+        let selectedLevel = 0; 
+        let dieTime = 0; 
+
+        // --- 2. ASSETS ---
+        const assets = {};
+        function loadAsset(name, src) {
+            assets[name] = new Image();
+            assets[name].src = src;
+        }
+
+        // GAME ASSETS
+        loadAsset("bg", "images/Themes/FlappyBird/bg.png");
+        loadAsset("mountain", "images/Themes/FlappyBird/mountain.png");
+        loadAsset("pipe", "images/Themes/FlappyBird/pipe.png");
+        loadAsset("bird0", "images/Themes/FlappyBird/bird.png");
+        loadAsset("bird1", "images/Themes/FlappyBird/bird1.png");
+        
+        // UI ASSETS
+        loadAsset("menu_bg", "images/UI/homescreen.png");
+        loadAsset("coin", "images/UI/coin.png");
+        loadAsset("box", "images/UI/box.png");
+        loadAsset("button", "images/UI/button.png");
+        loadAsset("lock", "images/UI/lock.png");
+
+        // CARD FRAMES
+        loadAsset("card_normal", "images/UI/skin button.png");
+        loadAsset("card_selected", "images/UI/skin button selected.png");
+        loadAsset("card_locked", "images/UI/skin button locked.png");
+
+        // THUMBNAILS
+        loadAsset("thumb_flappy", "images/Themes/FlappyBird/FlappyBirdThumbnail.png");
+        loadAsset("thumb_ocean", "images/Themes/Underwater/underwaterThumbnail.png");
+        loadAsset("thumb_magic", "images/Themes/Wizard/wizardThumbnail.png");
+        loadAsset("thumb_ghost", "images/Themes/Spooky/spookyThumbnail.png");
+        loadAsset("thumb_rescue", "images/Themes/Rescue/rescueThumbnail.png");
+
+        // --- 3. INPUTS ---
+        window.addEventListener("keydown", function(e) {
+            const key = e.keyCode;
+            if (currentState === STATE.TITLE) {
+                if (key === 13 || key === 32 || key === 38) currentState = STATE.LEVEL_SELECT;
+            } 
+            else if (currentState === STATE.LEVEL_SELECT) {
+                if (key === 39) selectedLevel = Math.min(selectedLevel + 1, 4);
+                else if (key === 37) selectedLevel = Math.max(selectedLevel - 1, 0);
+                else if (key === 13 || key === 38 || key === 32) {
+                    if (selectedLevel === 0) { currentState = STATE.GAME; resetGame(); }
+                } else if (key === 10009 || key === 27) currentState = STATE.TITLE;
+            } 
+            else if (currentState === STATE.GAME) {
+                if (key === 13 || key === 38 || key === 32) bird.flap();
+            } 
+            else if (currentState === STATE.GAMEOVER) {
+                if (Date.now() - dieTime < 1000) return; 
+                if (key === 13 || key === 38 || key === 32) { currentState = STATE.GAME; resetGame(); }
+                else if (key === 10009 || key === 27) currentState = STATE.LEVEL_SELECT;
+            }
+        });
+
+        // --- 4. GAME OBJECTS ---
+        const bird = {
+            x: canvas.width * 0.3, y: 200, 
+            radius: 40, velocity: 0, gravity: 0.12, jump: 5.0,     
+            rotation: 0, frame: 0, flapTimer: 0,
+            draw: function() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                this.rotation = Math.min(Math.PI / 4, Math.max(-Math.PI / 4, (this.velocity * 0.08)));
+                ctx.rotate(this.rotation);
+                ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 10; ctx.shadowOffsetX = 5; ctx.shadowOffsetY = 5;
+                let animName = "bird" + this.frame;
+                let img = assets[animName];
+                if (!img || !img.complete || img.naturalWidth === 0) img = assets["bird0"];
+                if (img && img.complete && img.naturalWidth > 0) {
+                     ctx.drawImage(img, -this.radius, -this.radius, this.radius*2, this.radius*2);
+                } else { 
+                    ctx.fillStyle = "#ffcc00"; ctx.beginPath(); ctx.arc(0,0,this.radius,0,Math.PI*2); ctx.fill(); 
+                }
+                ctx.restore();
+            },
+            flap: function() { this.velocity = -this.jump; this.frame = 1; this.flapTimer = 12; },
+            update: function() {
+                this.velocity += this.gravity; this.y += this.velocity;
+                if (this.flapTimer > 0) this.flapTimer--; else this.frame = 0;
+                if (this.y + this.radius >= canvas.height - 20) die();
+            }
+        };
+
+        const pipes = {
+            items: [], w: 90, gap: 280, dx: 2.0, 
+            draw: function() {
+                for (let i = 0; i < this.items.length; i++) {
+                    let p = this.items[i];
+                    ctx.shadowColor = "rgba(0,0,0,0.3)"; ctx.shadowBlur = 5; ctx.shadowOffsetX = 5;
+                    if (assets.pipe.complete && assets.pipe.naturalWidth > 0) {
+                        ctx.save(); ctx.translate(p.x + this.w/2, p.y); 
+                        ctx.scale(1, -1); ctx.drawImage(assets.pipe, -this.w/2, 0, this.w, 800); ctx.restore();
+                        ctx.drawImage(assets.pipe, p.x, p.y + this.gap, this.w, 800);
+                    } else {
+                        ctx.fillStyle = "#74BF2E"; ctx.fillRect(p.x, 0, this.w, p.y); ctx.fillRect(p.x, p.y + this.gap, this.w, canvas.height);
+                    }
+                    ctx.shadowColor = "transparent"; 
+                }
+            },
+            update: function() {
+                if (frames % 220 === 0) { 
+                    let topY = Math.random() * (canvas.height - 500) + 50;
+                    this.items.push({ x: canvas.width, y: topY, passed: false });
+                }
+                for (let i = 0; i < this.items.length; i++) {
+                    let p = this.items[i];
+                    p.x -= this.dx;
+                    if (bird.x + (bird.radius-10) > p.x && bird.x - (bird.radius-10) < p.x + this.w && 
+                       (bird.y - (bird.radius-10) < p.y || bird.y + (bird.radius-10) > p.y + this.gap)) die();
+                    if (p.x + this.w < bird.x && !p.passed) { score++; p.passed = true; }
+                }
+            }
+        };
+
+        const coinObj = {
+            items: [], size: 55, 
+            draw: function() {
+                for (let i = 0; i < this.items.length; i++) {
+                    let c = this.items[i];
+                    if (c.collected) continue;
+                    let floatY = Math.sin(frames * 0.1) * 5; 
+                    ctx.shadowColor = "gold"; ctx.shadowBlur = 10;
+                    if(assets.coin.complete) ctx.drawImage(assets.coin, c.x, c.y + floatY, this.size, this.size);
+                    else { ctx.fillStyle = "gold"; ctx.beginPath(); ctx.arc(c.x+25, c.y+25+floatY, 25, 0, Math.PI*2); ctx.fill(); }
+                    ctx.shadowColor = "transparent";
+                }
+            },
+            update: function() {
+                if (frames % 220 === 40) {
+                    let lastPipe = pipes.items[pipes.items.length-1];
+                    let startY = lastPipe.y + (pipes.gap / 2);
+                    let pattern = Math.random() > 0.6 ? 1 : 0;
+                    if (pattern === 0) {
+                        let offset = (Math.random() * 100) - 50; 
+                        this.items.push({ x: canvas.width, y: startY + offset, collected: false });
+                    } else {
+                        for(let i=0; i<3; i++) {
+                            this.items.push({ x: canvas.width + (i * 60), y: startY + (Math.sin(i)*50), collected: false });
+                        }
+                    }
+                }
+                for (let i = 0; i < this.items.length; i++) {
+                    let c = this.items[i];
+                    c.x -= pipes.dx;
+                    let dist = Math.hypot(bird.x - (c.x + 25), bird.y - (c.y + 25));
+                    if (dist < 60 && !c.collected) { c.collected = true; coins++; }
+                }
+            }
+        };
+
+        function resetGame() {
+            bird.y = 200; bird.velocity = 0; bird.rotation = 0;
+            pipes.items = []; coinObj.items = []; score = 0; frames = 0;
+            dieTime = 0;
+        }
+
+        function die() {
+            currentState = STATE.GAMEOVER;
+            highscore = Math.max(score, highscore);
+            dieTime = Date.now();
+        }
+
+        // --- 5. RENDER HELPERS ---
+
+        function drawTiledBackground(img, speed) {
+            if (!img.complete || img.naturalWidth === 0) {
+                ctx.fillStyle = "#70c5ce"; ctx.fillRect(0,0,canvas.width,canvas.height);
+                return;
+            }
+            let scale = canvas.height / img.naturalHeight;
+            let renderW = img.naturalWidth * scale;
+            let renderH = canvas.height;
+            let offset = (frames * speed) % renderW;
+            let startX = -offset;
+            while (startX < canvas.width) {
+                ctx.drawImage(img, startX, 0, renderW, renderH);
+                startX += renderW - 1; 
+            }
+        }
+
+        function drawMountainBackground(img, speed) {
+            if (!img.complete || img.naturalWidth === 0) return;
+            let scale = 1.0; 
+            if(img.naturalWidth < 100) scale = 2.0; 
+            let renderW = img.naturalWidth * scale;
+            let renderH = img.naturalHeight * scale;
+            let y = canvas.height - renderH; 
+            let offset = (frames * speed) % renderW;
+            let startX = -offset;
+            while (startX < canvas.width) {
+                ctx.drawImage(img, startX, y, renderW, renderH);
+                startX += renderW - 1; 
+            }
+        }
+
+        function drawCoverBackground(img) {
+             if (!img.complete || img.naturalWidth === 0) {
+                 ctx.fillStyle = "#1a1a1a"; ctx.fillRect(0,0,canvas.width,canvas.height);
+                 return;
+             }
+             let scale = Math.max(canvas.width / img.naturalWidth, canvas.height / img.naturalHeight);
+             let w = img.naturalWidth * scale;
+             let h = img.naturalHeight * scale;
+             let x = (canvas.width - w) / 2;
+             let y = (canvas.height - h) / 2;
+             ctx.drawImage(img, x, y, w, h);
+        }
+
+        function drawGradientText(text, x, y, size, color1, color2) {
+            ctx.save();
+            ctx.font = "bold " + size + "px Arial";
+            ctx.textAlign = "center";
+            let gradient = ctx.createLinearGradient(x, y - size, x, y + 10);
+            gradient.addColorStop(0, color1); gradient.addColorStop(1, color2);
+            ctx.shadowColor = "rgba(0,0,0,0.8)"; ctx.shadowBlur = 15; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4;
+            ctx.fillStyle = gradient; ctx.fillText(text, x, y);
+            ctx.shadowBlur = 0; ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.strokeText(text, x, y);
+            ctx.restore();
+        }
+
+        function drawTitleScreen() {
+            drawCoverBackground(assets.menu_bg);
+        }
+
+        function drawLevelSelect() {
+            // Background
+            ctx.fillStyle = "#2c3e50"; ctx.fillRect(0,0,canvas.width,canvas.height);
+            drawTiledBackground(assets.bg, 0.2); 
+            ctx.fillStyle = "rgba(0,0,0,0.2)"; ctx.fillRect(0,0,canvas.width,canvas.height);
+
+            // SELECT LEVEL TEXT
+            drawGradientText("SELECT LEVEL", canvas.width/2, 120, 60, "#FFF", "#87CEEB");
+
+            // CORRECT NAMES FROM VIDEO
+            const levels = [
+                {name: "Flappy Wings", thumb: "thumb_flappy", locked: false},
+                {name: "Ocean Hop", thumb: "thumb_ocean", locked: true},
+                {name: "Magical Realm", thumb: "thumb_magic", locked: true},
+                {name: "Ghost Town", thumb: "thumb_ghost", locked: true},
+                {name: "Rescue Flight", thumb: "thumb_rescue", locked: true}
+            ];
+            
+            // INCREASED CARD SIZE TO MATCH VIDEO
+            const cardW = 320;
+            const cardH = 580; // Tall cards
+            const spacing = 30; 
+            
+            const totalW = (levels.length * cardW) + ((levels.length-1) * spacing);
+            const startX = (canvas.width - totalW) / 2;
+            const startY = (canvas.height - cardH) / 2 + 40;
+
+            for(let i=0; i<5; i++) {
+                let x = startX + (i * (cardW + spacing));
+                let y = startY;
+
+                let scale = (i === selectedLevel) ? 1.05 : 1.0;
+                let alpha = (i === selectedLevel) ? 1.0 : 0.9;
+
+                ctx.save();
+                ctx.translate(x + cardW/2, y + cardH/2);
+                ctx.scale(scale, scale);
+                ctx.globalAlpha = alpha;
+                
+                // 1. DRAW FRAME (Background)
+                let frameImg = assets.card_normal;
+                if (i === selectedLevel) frameImg = assets.card_selected;
+                if (levels[i].locked) frameImg = assets.card_locked;
+
+                if (frameImg && frameImg.complete) {
+                    // Draw Frame
+                    ctx.drawImage(frameImg, -cardW/2, -cardH/2, cardW, cardH);
+                } else {
+                    ctx.fillStyle = "#FFF"; ctx.fillRect(-cardW/2, -cardH/2, cardW, cardH);
+                }
+
+                // 2. DRAW TITLE (In the top whitespace)
+                ctx.fillStyle = "#000"; 
+                ctx.font = "bold 24px Arial"; ctx.textAlign = "center"; 
+                ctx.fillText(levels[i].name, 0, -cardH/2 + 50);
+
+                // 3. DRAW THUMBNAIL (Middle)
+                let thumb = assets[levels[i].thumb];
+                if(thumb && thumb.complete) {
+                    let tW = cardW - 30; // Padding
+                    let tH = 380; // Fixed height for image
+                    // Position roughly in the middle
+                    ctx.drawImage(thumb, -tW/2, -cardH/2 + 80, tW, tH);
+                }
+
+                // 4. DRAW BUTTON TEXT (Bottom)
+                // Frame already has the button background graphic, just add text
+                let btnY = (cardH/2) - 50; 
+                
+                if (!levels[i].locked) {
+                    ctx.fillStyle = "#e74c3c"; // Red
+                    ctx.font = "bold 35px Arial"; ctx.textAlign = "center"; 
+                    ctx.fillText("PLAY", 0, btnY);
+                } else {
+                    ctx.fillStyle = "#27ae60"; // Green
+                    ctx.font = "bold 35px Arial"; ctx.textAlign = "center"; 
+                    ctx.fillText("BUY", 0, btnY);
+
+                    // Lock Icon
+                    if(assets.lock.complete) {
+                        ctx.drawImage(assets.lock, -30, -50, 60, 60);
+                    }
+                }
+
+                // Selection Glow
+                if(i === selectedLevel) {
+                    ctx.shadowColor = "white"; ctx.shadowBlur = 20;
+                    ctx.lineWidth = 3; ctx.strokeStyle = "rgba(255,255,255,0.5)";
+                    ctx.strokeRect(-cardW/2, -cardH/2, cardW, cardH);
+                }
+
+                ctx.restore();
+            }
+            drawCoinsOnly(); 
+        }
+
+        function drawCoinsOnly() {
+            if(!assets.coin.complete) return;
+            let coinStr = coins.toString();
+            ctx.font = "bold 40px Arial";
+            let txtW = ctx.measureText(coinStr).width;
+            let hudW = txtW + 90;
+            ctx.fillStyle = "rgba(0,0,0,0.6)"; 
+            ctx.beginPath(); ctx.roundRect(canvas.width - hudW - 20, 20, hudW, 60, 30); ctx.fill();
+            ctx.drawImage(assets.coin, canvas.width - hudW - 10, 28, 44, 44);
+            ctx.fillStyle = "#FFD700"; ctx.textAlign = "left"; 
+            ctx.fillText(coinStr, canvas.width - hudW + 45, 63);
+        }
+
+        function drawGameHUD() {
+            ctx.shadowColor = "black"; ctx.shadowBlur = 5; 
+            ctx.fillStyle = "white"; ctx.font = "bold 80px Arial"; ctx.textAlign = "center";
+            ctx.fillText(score, canvas.width/2, 100);
+            ctx.shadowColor = "transparent";
+            drawCoinsOnly();
+        }
+
+        function renderGameScene() {
+            drawTiledBackground(assets.bg, 0.2); 
+            drawMountainBackground(assets.mountain, 0.5);
+            pipes.draw(); coinObj.draw(); bird.draw(); 
+            drawGameHUD(); 
+        }
+
+        function drawGame() {
+            renderGameScene();
+            bird.update(); pipes.update(); coinObj.update();
+        }
+
+        function drawGameOver() {
+            renderGameScene();
+            ctx.fillStyle = "rgba(0,0,0,0.7)"; ctx.fillRect(0,0,canvas.width,canvas.height);
+
+            let scale = Math.min(1, (Date.now() - dieTime) / 300); 
+            ctx.save(); ctx.translate(canvas.width/2, canvas.height/2); ctx.scale(scale, scale);
+
+            if(assets.box.complete) { ctx.drawImage(assets.box, -200, -150, 400, 300); } 
+            else { ctx.fillStyle = "#FFF"; ctx.beginPath(); ctx.roundRect(-200, -150, 400, 300, 20); ctx.fill(); }
+
+            ctx.save(); ctx.shadowColor = "black"; ctx.shadowBlur = 10;
+            ctx.fillStyle = "#e74c3c"; ctx.font = "bold 50px Arial"; ctx.textAlign = "center";
+            ctx.fillText("GAME OVER", 0, -60); ctx.restore();
+
+            ctx.fillStyle = "#333"; ctx.font = "bold 30px Arial"; ctx.textAlign = "center";
+            ctx.fillText("Score: " + score, 0, 10); ctx.fillText("Best: " + highscore, 0, 50);
+            
+            if(score >= highscore && score > 0 && Math.floor(frames/10)%2===0) {
+                 ctx.fillStyle = "#FFD700"; ctx.font = "bold 20px Arial"; ctx.fillText("NEW RECORD!", 0, 90);
+            }
+
+            if(assets.button.complete) ctx.drawImage(assets.button, -80, 100, 160, 60);
+            ctx.fillStyle = "white"; ctx.font = "bold 25px Arial"; ctx.shadowColor="black"; ctx.shadowBlur=5;
+            ctx.fillText("PRESS OK", 0, 140);
+            
+            ctx.restore();
+        }
+
+        function loop() {
+            ctx.clearRect(0,0,canvas.width,canvas.height);
+            if(currentState === STATE.TITLE) drawTitleScreen();
+            else if(currentState === STATE.LEVEL_SELECT) drawLevelSelect();
+            else if(currentState === STATE.GAME) drawGame();
+            else if(currentState === STATE.GAMEOVER) {
+                if(dieTime === 0) dieTime = Date.now();
+                drawGameOver();
+            } else { dieTime = 0; }
+            frames++;
+            requestAnimationFrame(loop);
+        }
+        
+        setTimeout(loop, 500);
+    </script>
+</body>
+</html>
